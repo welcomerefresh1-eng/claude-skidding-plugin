@@ -22,10 +22,6 @@ local lua_load = loadstring
 local function jenc(t) return HttpService:JSONEncode(t) end
 local function jdec(s) return HttpService:JSONDecode(s) end
 
-local function missing(name)
-    return nil, "potassium missing required function " .. name
-end
-
 local function serialize(v, depth)
     depth = depth or 0
     if depth > 6 then return "<max depth>" end
