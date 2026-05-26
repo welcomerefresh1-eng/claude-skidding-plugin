@@ -12,6 +12,17 @@ do
     print(string.format("[Claude Gateway] Potassium %s detected", tostring(version)))
 end
 
+local RAKNET_AVAILABLE = (type(raknet) == "table"
+    and type(raknet.send) == "function"
+    and type(raknet.add_send_hook) == "function"
+    and type(raknet.remove_send_hook) == "function") or false
+
+if RAKNET_AVAILABLE then
+    print("[Claude Gateway] raknet API is exposed (enable it in Potassium UI to actually send/receive — ban risk per Potassium docs)")
+else
+    print("[Claude Gateway] raknet API not present in this Potassium build")
+end
+
 local HOST = "http://127.0.0.1:7474"
 
 local HttpService = game:GetService("HttpService")
@@ -115,6 +126,9 @@ local state = {
     old_namecall = nil,
     drawings = {},
     next_draw_id = 1,
+    raknet_log = {},
+    raknet_log_cap = 1000,
+    raknet_log_hook = nil,
 }
 
 local function installNamecallHook()
@@ -568,6 +582,82 @@ end
 function tools.clear_remote_log(_)
     state.remote_log = {}
     return { status = "cleared" }
+end
+
+local function packetToTable(packet)
+    local out = {}
+    pcall(function() out.id = packet.PacketId end)
+    pcall(function() out.size = packet.Size end)
+    pcall(function() out.priority = packet.Priority end)
+    pcall(function() out.reliability = packet.Reliability end)
+    pcall(function() out.ordering_channel = packet.OrderingChannel end)
+    pcall(function() out.as_string = packet.AsString end)
+    pcall(function()
+        local arr = packet.AsArray
+        if type(arr) == "table" then
+            local copy = {}
+            for i, v in ipairs(arr) do copy[i] = v end
+            out.as_array = copy
+        end
+    end)
+    return out
+end
+
+function tools.raknet_status(_)
+    return { available = RAKNET_AVAILABLE, logging = state.raknet_log_hook ~= nil, log_entries = #state.raknet_log }
+end
+
+function tools.raknet_start_log(params)
+    if not RAKNET_AVAILABLE then return nil, "raknet API not exposed in this Potassium build" end
+    if state.raknet_log_hook then return { status = "already logging", cap = state.raknet_log_cap } end
+    if params and params.cap then state.raknet_log_cap = params.cap end
+    local cap = state.raknet_log_cap
+    local log = state.raknet_log
+    local hook = function(packet)
+        local entry = { time = tick(), packet = packetToTable(packet) }
+        table.insert(log, entry)
+        if #log > cap then table.remove(log, 1) end
+    end
+    local ok, err = pcall(raknet.add_send_hook, hook)
+    if not ok then return nil, tostring(err) end
+    state.raknet_log_hook = hook
+    return { status = "logging started", cap = state.raknet_log_cap, note = "if you see nothing fire, raknet isn't enabled in Potassium UI settings" }
+end
+
+function tools.raknet_stop_log(_)
+    if not state.raknet_log_hook then return { status = "not logging" } end
+    pcall(raknet.remove_send_hook, state.raknet_log_hook)
+    state.raknet_log_hook = nil
+    return { status = "stopped", entries = #state.raknet_log }
+end
+
+function tools.raknet_get_log(params)
+    local since = params and params.since_index or 0
+    local out = {}
+    for i = since + 1, #state.raknet_log do out[#out + 1] = state.raknet_log[i] end
+    return { entries = out, total = #state.raknet_log }
+end
+
+function tools.raknet_clear_log(_)
+    state.raknet_log = {}
+    return { status = "cleared" }
+end
+
+function tools.raknet_send(params)
+    if not RAKNET_AVAILABLE then return nil, "raknet API not exposed in this Potassium build" end
+    local data = params.data
+    if type(data) ~= "string" then return nil, "data must be a string (raw bytes or base64)" end
+    if params.base64 then
+        local ok, decoded = pcall(crypt.base64decode, data)
+        if not ok then return nil, "base64 decode failed: " .. tostring(decoded) end
+        data = decoded
+    end
+    local priority = params.priority or 1
+    local reliability = params.reliability or 0
+    local ordering_channel = params.ordering_channel or 0
+    local ok, err = pcall(raknet.send, data, priority, reliability, ordering_channel)
+    if not ok then return nil, tostring(err) end
+    return { status = "sent", bytes = #data, priority = priority, reliability = reliability, ordering_channel = ordering_channel }
 end
 
 local function resolveSignal(spec)

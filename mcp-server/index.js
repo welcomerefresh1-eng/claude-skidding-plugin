@@ -342,6 +342,34 @@ tool("clear_remote_log",
   "Drop the in-memory remote log.",
   {});
 
+tool("raknet_status",
+  "Report whether Potassium's RakNet API is exposed and whether packet logging is currently active. Note: even if `available` is true, you must enable RakNet in Potassium's UI settings for hooks/sends to actually do anything.",
+  {});
+
+tool("raknet_start_log",
+  "Start logging every outbound RakNet packet via a send-hook. Pair with raknet_get_log. Ban risk per Potassium docs.",
+  { cap: z.number().int().optional().describe("Max retained entries (default 1000)") });
+
+tool("raknet_stop_log",
+  "Stop the RakNet send-hook logger.",
+  {});
+
+tool("raknet_get_log",
+  "Return logged RakNet packets. Pass since_index to only get new entries.",
+  { since_index: z.number().int().optional().describe("Return entries after this index. Default 0.") });
+
+tool("raknet_clear_log",
+  "Drop the in-memory RakNet packet log.",
+  {});
+
+tool("raknet_send",
+  "Send a raw RakNet packet. Ban risk per Potassium docs. Requires RakNet enabled in Potassium UI settings.",
+  { data: z.string().describe("Packet bytes (raw string, or base64 if base64=true)"),
+    base64: z.boolean().optional().describe("Set true if `data` is base64-encoded"),
+    priority: z.number().int().optional().describe("Default 1"),
+    reliability: z.number().int().optional().describe("Default 0"),
+    ordering_channel: z.number().int().optional().describe("Default 0") });
+
 tool("get_signal_connections",
   "List handlers attached to an RBXScriptSignal. Format: 'path::SignalName' (e.g. 'game.ReplicatedStorage.RemoteEvent::OnClientEvent').",
   { signal: z.string().describe("'path::SignalName'") });
