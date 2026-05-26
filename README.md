@@ -6,7 +6,7 @@ Claude Code plugin that hooks your AI up to your Roblox executor. You ask Claude
 
 - **Claude Code** installed (the AI CLI app)
 - **Node.js** installed — https://nodejs.org → click the big green "LTS" button → next next next finish
-- **A Roblox executor** with `request`/`http_request` and `loadstring` exposed (anything Whitegirl-tier or above works: Wave, Solara, Xeno, Volt, Hydrogen, Synapse, Krampus, etc.)
+- **A Roblox executor that's 100% sUNC compliant** (Volt, Potassium, or anything at that compliance level). Lower-tier executors are missing functions a lot of the tools need.
 
 If your executor can't even run `request({...})`, get a better one before going further.
 
