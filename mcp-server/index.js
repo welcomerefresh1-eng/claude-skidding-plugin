@@ -239,10 +239,6 @@ tool("get_hui",
   "Return the hidden UI container (gethui) and its top-level children.",
   {});
 
-tool("compare_instances",
-  "Test whether two paths resolve to the same underlying Instance (handles cloneref'd references).",
-  { a: z.string(), b: z.string() });
-
 tool("get_property",
   "Read a single property from an Instance. Falls back to gethiddenproperty if available.",
   { path: z.string(), name: z.string() });
@@ -303,10 +299,6 @@ tool("decompile_all_in",
   "Bulk decompile every script under a subtree. Capped by max_files.",
   { path: z.string().optional().describe("Root. Defaults to game"),
     max_files: z.number().int().optional().describe("Default 25") });
-
-tool("get_calling_script",
-  "Which script (if any) invoked the current call chain. Mostly nil here since we're in executor context.",
-  {});
 
 tool("find_remote_callers",
   "Find every script that mentions a remote name. Each hit flags whether it looks like a caller (.FireServer / .InvokeServer / .OnClientEvent / .OnClientInvoke).",
@@ -388,9 +380,7 @@ tool("get_callback",
 
 tool("fire_proximity_prompt",
   "Trigger a ProximityPrompt without holding / standing near it.",
-  { path: z.string(),
-    amount: z.number().optional().describe("Hold amount, default 1"),
-    skip: z.boolean().optional().describe("Skip hold duration, default true") });
+  { path: z.string() });
 
 tool("fire_click_detector",
   "Trigger a ClickDetector. Events: 'MouseClick' (default), 'RightMouseClick', 'MouseHoverEnter', 'MouseHoverLeave'.",
@@ -484,17 +474,19 @@ tool("delete_folder",
   { path: z.string() });
 
 tool("save_instance",
-  "Export an Instance subtree to an RBXM/RBXL file via saveinstance.",
-  { file_path: z.string(),
-    path: z.string().optional().describe("Root instance to save (omit for whole game)"),
-    mode: z.string().optional().describe("'optimized' | 'full' | 'scripts'"),
-    extra_paths: z.array(z.string()).optional().describe("Additional instance paths to include"),
-    nil_instances: z.boolean().optional(),
-    remove_player_chars: z.boolean().optional() });
-
-tool("save_place",
-  "Save the entire place as an RBXL.",
-  { filename: z.string().optional() });
+  "Save an Instance to an RBXM/RBXL via Potassium's saveinstance. Omit `path` to save the whole game.",
+  { path: z.string().optional().describe("Root instance to save (omit for whole game)"),
+    file_name: z.string().optional().describe("Output filename"),
+    decompile: z.boolean().optional().describe("Decompile scripts during save"),
+    nil_instances: z.boolean().optional().describe("Include instances parented to nil"),
+    remove_player_chars: z.boolean().optional().describe("Skip player characters"),
+    save_players: z.boolean().optional().describe("Include player Instances"),
+    decompile_timeout: z.number().int().optional().describe("Decompile per-script timeout in seconds (default 10)"),
+    max_threads: z.number().int().optional().describe("Decompile threads (default 3)"),
+    decompile_ignore: z.array(z.string()).optional().describe("Services to skip when decompiling"),
+    show_status: z.boolean().optional(),
+    ignore_default_props: z.boolean().optional(),
+    isolate_starter_player: z.boolean().optional() });
 
 tool("crypt_hash",
   "Hash data. Algorithms: MD5, SHA1, SHA256 (default), SHA384, SHA512.",
@@ -502,7 +494,11 @@ tool("crypt_hash",
 
 tool("crypt_hmac",
   "HMAC of data with key. Same algorithms as crypt_hash.",
-  { data: z.string(), key: z.string(), algorithm: z.string().optional() });
+  { key: z.string(), data: z.string(), algorithm: z.string().optional() });
+
+tool("crypt_generatekey",
+  "Generate a random base64-encoded key. Pair with crypt_encrypt.",
+  { length: z.number().int().optional().describe("Key length in bytes (default 32)") });
 
 tool("crypt_encrypt",
   "Encrypt data. Algorithms: AES-CBC (default), AES-GCM, AES-CTR.",
@@ -533,8 +529,12 @@ tool("lz4_decompress",
   { data: z.string(), size: z.number().int().describe("Original uncompressed size"), base64: z.boolean().optional() });
 
 tool("http_request",
-  "Make an outbound HTTP request via the executor's `request` function.",
-  { url: z.string(), method: z.string().optional().describe("Default GET"), headers: anyObj.optional(), body: z.string().optional() });
+  "Make an outbound HTTP request via Potassium's `request`.",
+  { url: z.string(), method: z.string().optional().describe("Default GET"), headers: anyObj.optional(), body: z.string().optional(), cookies: anyObj.optional() });
+
+tool("http_get",
+  "Simpler outbound HTTP GET via Potassium's `httpget`. Returns body as string.",
+  { url: z.string() });
 
 tool("is_window_active",
   "Is the Roblox window currently focused?",
@@ -640,16 +640,40 @@ tool("draw_clear",
   "Remove every Drawing currently on screen.",
   {});
 
-tool("cache_invalidate",
-  "Drop an Instance from the executor's reference cache.",
+tool("get_bsp_val",
+  "Read a BinaryString property (e.g. Terrain.SmoothGrid, BinaryStringValue.Value, PartOperation.PhysicsData). Set base64=true if you want the value base64-encoded.",
+  { path: z.string(), name: z.string(), base64: z.boolean().optional() });
+
+tool("get_proximity_prompt_duration",
+  "Return a ProximityPrompt's HoldDuration via Potassium's getproximitypromptduration.",
   { path: z.string() });
 
-tool("cache_replace",
-  "Replace cached references to one Instance with another (everyone holding the first now sees the second).",
-  { path: z.string(), replacement: z.string() });
+tool("set_proximity_prompt_duration",
+  "Set a ProximityPrompt's HoldDuration via Potassium's setproximitypromptduration.",
+  { path: z.string(), duration: z.number() });
 
-tool("cache_iscached",
-  "Check whether an Instance is in the reference cache.",
+tool("get_simulation_radius",
+  "Return the LocalPlayer's network simulation radius.",
+  {});
+
+tool("set_simulation_radius",
+  "Set the LocalPlayer's network simulation radius.",
+  { radius: z.number() });
+
+tool("is_network_owner",
+  "Is the LocalPlayer the network owner of the given instance?",
   { path: z.string() });
+
+tool("get_signal_whitelist",
+  "Return Roblox's signal replication whitelist — list of {Parent, Event} entries that replicatesignal accepts.",
+  {});
+
+tool("get_custom_asset",
+  "Turn a file in the executor workspace into an `rbxasset://` content id (for Sound.SoundId, ImageLabel.Image, etc.).",
+  { path: z.string().describe("Relative path under workspace, e.g. 'sounds/mysound.mp3'") });
+
+tool("get_objects",
+  "Fetch a Roblox asset by rbxassetid:// URL and return its top-level instances.",
+  { asset: z.string().describe("e.g. 'rbxassetid://1818'") });
 
 await server.connect(new StdioServerTransport());
