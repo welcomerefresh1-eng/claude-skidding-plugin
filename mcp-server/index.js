@@ -161,7 +161,47 @@ httpServer.listen(PORT, HOST, () => {
   console.error(`[roblox-bridge] broker listening on http://${HOST}:${PORT}`);
 });
 
-const server = new McpServer({ name: "roblox-bridge", version: "0.1.0" });
+const INSTRUCTIONS = `
+You have direct access to a live Roblox game through the Potassium executor via this plugin's gateway. ~100 tools let you walk the DataModel, decompile every client script, grep their source, fire remotes, hook signals, capture network traffic, and run arbitrary Luau.
+
+# Workflow (cheap → expensive)
+
+1. Orient: get_status, get_player, list_players, get_tree path="game" max_depth=2.
+2. Locate: search_instances (by name/class), list_scripts, list_remotes.
+3. Read: get_source on specific scripts, get_tree on a subtree.
+4. Grep: find_in_source — ALWAYS pass \`scope\` to limit it to a subtree (e.g. "ReplicatedStorage .Modules"). Without scope it walks Roblox CorePackages which is huge and slow.
+5. Deep dive: get_script_closure, get_script_env, get_callback, inspect_function, gc_search / filter_gc when source is obfuscated.
+6. Confirm at runtime: start_remote_log → user triggers the action in-game → get_remote_log to see exactly what fired and with what args.
+
+# Efficiency
+
+- find_in_source with \`scope\` is the #1 perf win. The non-scoped version frequently times out on commercial games.
+- Prefer search_instances over get_all_instances (which can return many MB).
+- get_tree max_depth=2 before max_depth=5.
+- Use named tools over execute_lua — they're typed, structured, and cheaper on tokens. Only fall back to execute_lua when no dedicated tool fits, and always \`return\` the value you want back.
+- Grep before read: find_in_source returns line-level hits; get_source returns the whole file. Use both in order.
+
+# Roblox / Potassium gotchas
+
+- Many games obfuscate service names with TRAILING SPACES — "ReplicatedStorage ", "Players ", "Workspace ". Use exact paths from search_instances output; do not strip the whitespace. Inside execute_lua, prefer game:GetService("X") over dot-paths.
+- ServerScriptService scripts are NOT present on the client. You can decompile every client script but server-only code is unreachable from any executor.
+- Cross-player privacy: most games only expose Level / wins / favorites of OTHER players (via RequestProfile-style remotes) plus a few replicated attributes / leaderstats. Per-statistic, per-inventory, per-contract data of OTHER players is almost always server-locked behind moderator perms — manage user expectations accordingly.
+
+# Safety
+
+- Do NOT fire remotes with destructive side effects (purchases, kicks, bans, account-affecting actions, item burning, etc.) without explicit user confirmation.
+- raknet_send and raknet_start_log are ban-risk per Potassium's own docs AND require the UI toggle to actually do anything.
+- set_property / set_scriptable / fire_signal / replicate_signal can desync state or trigger anti-cheat. Flag side effects before invoking.
+
+# When to delegate
+
+For multi-step investigations ("how does the shop work", "find the anti-cheat", "trace what happens on death", "find every script that touches DataStore"), delegate to the \`roblox-explorer\` subagent — it has a more thorough playbook loaded and keeps the main thread's context clean.
+`.trim();
+
+const server = new McpServer(
+  { name: "roblox-bridge", version: "0.1.0" },
+  { instructions: INSTRUCTIONS }
+);
 
 function formatResult(result) {
   if (typeof result === "string") return { content: [{ type: "text", text: result }] };
