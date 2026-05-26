@@ -1,26 +1,29 @@
-assert(loadstring or load, "executor missing required function loadstring/load")
+do
+    if type(identifyexecutor) ~= "function" then
+        error("[Claude Gateway] identifyexecutor is missing. This gateway requires the Potassium executor.")
+    end
+    local name, version = identifyexecutor()
+    if name ~= "Potassium" then
+        error(string.format(
+            "[Claude Gateway] This gateway only runs on the Potassium executor. Detected: %s (%s).",
+            tostring(name), tostring(version)
+        ))
+    end
+    print(string.format("[Claude Gateway] Potassium %s detected", tostring(version)))
+end
 
 local HOST = "http://127.0.0.1:7474"
-
-local request = http_request
-    or request
-    or (syn and syn.request)
-    or (http and http.request)
-    or (fluxus and fluxus.request)
-assert(request, "executor missing required function request/http_request")
 
 local HttpService = game:GetService("HttpService")
 local Players     = game:GetService("Players")
 
-local lua_load = loadstring or load
-local wait_ = (task and task.wait) or wait
-local spawn_ = (task and task.spawn) or spawn
+local lua_load = loadstring
 
 local function jenc(t) return HttpService:JSONEncode(t) end
 local function jdec(s) return HttpService:JSONDecode(s) end
 
 local function missing(name)
-    return nil, "executor missing required function " .. name
+    return nil, "potassium missing required function " .. name
 end
 
 local function serialize(v, depth)
@@ -120,8 +123,6 @@ local state = {
 
 local function installNamecallHook()
     if state.namecall_installed then return true end
-    if not hookmetamethod then return nil, "executor missing required function hookmetamethod" end
-    if not getnamecallmethod then return nil, "executor missing required function getnamecallmethod" end
     state.namecall_installed = true
     state.old_namecall = hookmetamethod(game, "__namecall", function(self, ...)
         local args = { ... }
@@ -159,7 +160,6 @@ function tools.execute_lua(params)
     local fn, err = lua_load(code, "execute_lua")
     if not fn then return nil, "compile error: " .. tostring(err) end
     if params.identity ~= nil then
-        if not setthreadidentity then return missing("setthreadidentity") end
         pcall(setthreadidentity, params.identity)
     end
     local ok, result = xpcall(fn, function(e)
@@ -223,7 +223,6 @@ function tools.search_instances(params)
 end
 
 function tools.get_nil_instances(_)
-    if not getnilinstances then return missing("getnilinstances") end
     local out = {}
     for _, inst in ipairs(getnilinstances()) do
         out[#out + 1] = { class = inst.ClassName, name = inst.Name, path = inst:GetFullName() }
@@ -232,7 +231,6 @@ function tools.get_nil_instances(_)
 end
 
 function tools.get_all_instances(params)
-    if not getinstances then return missing("getinstances") end
     local maxResults = params.max_results or 5000
     local class = params.class
     local out, count = {}, 0
@@ -248,7 +246,6 @@ function tools.get_all_instances(params)
 end
 
 function tools.get_hui(_)
-    if not gethui then return missing("gethui") end
     local hui = gethui()
     local children = {}
     for _, c in ipairs(hui:GetChildren()) do
@@ -257,24 +254,13 @@ function tools.get_hui(_)
     return { path = hui:GetFullName(), class = hui.ClassName, children = children }
 end
 
-function tools.compare_instances(params)
-    if not compareinstances then return missing("compareinstances") end
-    local a, errA = resolvePath(params.a)
-    if not a then return nil, "a: " .. tostring(errA) end
-    local b, errB = resolvePath(params.b)
-    if not b then return nil, "b: " .. tostring(errB) end
-    return { equal = compareinstances(a, b) }
-end
-
 function tools.get_property(params)
     local inst, err = resolvePath(params.path)
     if not inst then return nil, err end
     local ok, res = pcall(function() return inst[params.name] end)
     if ok then return serialize(res) end
-    if gethiddenproperty then
-        local ok2, hidden = pcall(gethiddenproperty, inst, params.name)
-        if ok2 then return { value = serialize(hidden), via = "gethiddenproperty" } end
-    end
+    local ok2, hidden, isHidden = pcall(gethiddenproperty, inst, params.name)
+    if ok2 then return { value = serialize(hidden), hidden = isHidden, via = "gethiddenproperty" } end
     return nil, "read failed: " .. tostring(res)
 end
 
@@ -283,15 +269,12 @@ function tools.set_property(params)
     if not inst then return nil, err end
     local ok, res = pcall(function() inst[params.name] = params.value end)
     if ok then return { status = "set" } end
-    if sethiddenproperty then
-        local ok2 = pcall(sethiddenproperty, inst, params.name, params.value)
-        if ok2 then return { status = "set via sethiddenproperty" } end
-    end
+    local ok2, isHidden = pcall(sethiddenproperty, inst, params.name, params.value)
+    if ok2 then return { status = "set via sethiddenproperty", hidden = isHidden } end
     return nil, "set failed: " .. tostring(res)
 end
 
 function tools.get_all_properties(params)
-    if not getproperties then return missing("getproperties") end
     local inst, err = resolvePath(params.path)
     if not inst then return nil, err end
     local ok, props = pcall(getproperties, inst)
@@ -300,7 +283,6 @@ function tools.get_all_properties(params)
 end
 
 function tools.get_hidden_properties(params)
-    if not gethiddenproperties then return missing("gethiddenproperties") end
     local inst, err = resolvePath(params.path)
     if not inst then return nil, err end
     local ok, props = pcall(gethiddenproperties, inst)
@@ -309,22 +291,57 @@ function tools.get_hidden_properties(params)
 end
 
 function tools.is_scriptable(params)
-    if not isscriptable then return missing("isscriptable") end
     local inst, err = resolvePath(params.path)
     if not inst then return nil, err end
     return { scriptable = isscriptable(inst, params.name) }
 end
 
 function tools.set_scriptable(params)
-    if not setscriptable then return missing("setscriptable") end
     local inst, err = resolvePath(params.path)
     if not inst then return nil, err end
-    local prev = setscriptable(inst, params.name, params.scriptable == true)
-    return { previous = prev, current = params.scriptable == true }
+    setscriptable(inst, params.name, params.scriptable == true)
+    return { current = params.scriptable == true }
+end
+
+function tools.get_bsp_val(params)
+    local inst, err = resolvePath(params.path)
+    if not inst then return nil, err end
+    local ok, res = pcall(getbspval, inst, params.name, params.base64 == true)
+    if not ok then return nil, tostring(res) end
+    return { value = res, base64 = params.base64 == true }
+end
+
+function tools.get_proximity_prompt_duration(params)
+    local inst, err = resolvePath(params.path)
+    if not inst then return nil, err end
+    if not inst:IsA("ProximityPrompt") then return nil, "not a ProximityPrompt" end
+    return { duration = getproximitypromptduration(inst) }
+end
+
+function tools.set_proximity_prompt_duration(params)
+    local inst, err = resolvePath(params.path)
+    if not inst then return nil, err end
+    if not inst:IsA("ProximityPrompt") then return nil, "not a ProximityPrompt" end
+    setproximitypromptduration(inst, params.duration)
+    return { duration = params.duration }
+end
+
+function tools.get_simulation_radius(_)
+    return { radius = getsimulationradius() }
+end
+
+function tools.set_simulation_radius(params)
+    setsimulationradius(params.radius)
+    return { radius = params.radius }
+end
+
+function tools.is_network_owner(params)
+    local inst, err = resolvePath(params.path)
+    if not inst then return nil, err end
+    return { owner = isnetworkowner(inst) }
 end
 
 function tools.get_source(params)
-    if not decompile then return missing("decompile") end
     local inst, err = resolvePath(params.path)
     if not inst then return nil, err end
     if not (inst:IsA("LocalScript") or inst:IsA("ModuleScript") or inst:IsA("Script")) then
@@ -336,7 +353,6 @@ function tools.get_source(params)
 end
 
 function tools.get_bytecode(params)
-    if not getscriptbytecode then return missing("getscriptbytecode") end
     local inst, err = resolvePath(params.path)
     if not inst then return nil, err end
     local ok, bc = pcall(getscriptbytecode, inst)
@@ -348,7 +364,6 @@ function tools.get_bytecode(params)
 end
 
 function tools.get_script_hash(params)
-    if not getscripthash then return missing("getscripthash") end
     local inst, err = resolvePath(params.path)
     if not inst then return nil, err end
     local ok, hash = pcall(getscripthash, inst)
@@ -357,7 +372,6 @@ function tools.get_script_hash(params)
 end
 
 function tools.get_script_env(params)
-    if not getsenv then return missing("getsenv") end
     local inst, err = resolvePath(params.path)
     if not inst then return nil, err end
     local ok, env = pcall(getsenv, inst)
@@ -368,40 +382,28 @@ function tools.get_script_env(params)
 end
 
 function tools.get_script_closure(params)
-    local fn = getscriptclosure or getscriptfunction
-    if not fn then return missing("getscriptclosure") end
     local inst, err = resolvePath(params.path)
     if not inst then return nil, err end
-    local ok, closure = pcall(fn, inst)
+    local ok, closure = pcall(getscriptclosure, inst)
     if not ok then return nil, tostring(closure) end
     local out = { has_closure = closure ~= nil }
-    if debug and debug.getconstants then
-        local ok2, cs = pcall(debug.getconstants, closure)
-        if ok2 then out.constants = serialize(cs) end
-    end
-    if debug and debug.getupvalues then
-        local ok2, ups = pcall(debug.getupvalues, closure)
-        if ok2 then out.upvalues = serialize(ups) end
-    end
-    if debug and debug.getprotos then
-        local ok2, ps = pcall(debug.getprotos, closure)
-        if ok2 then out.proto_count = #ps end
+    if closure then
+        local ok2, cs = pcall(debug.getconstants, closure); if ok2 then out.constants = serialize(cs) end
+        local ok3, ups = pcall(debug.getupvalues, closure); if ok3 then out.upvalues = serialize(ups) end
+        local ok4, ps = pcall(debug.getprotos, closure);   if ok4 then out.proto_count = #ps end
     end
     return out
 end
 
 function tools.list_scripts(_)
     local out = {}
-    for _, d in ipairs(game:GetDescendants()) do
-        if d:IsA("LocalScript") or d:IsA("ModuleScript") or d:IsA("Script") then
-            out[#out + 1] = { path = d:GetFullName(), class = d.ClassName }
-        end
+    for _, d in ipairs(getscripts()) do
+        out[#out + 1] = { path = d:GetFullName(), class = d.ClassName }
     end
     return out
 end
 
 function tools.find_in_source(params)
-    if not decompile then return missing("decompile") end
     local pattern = params.pattern
     if type(pattern) ~= "string" then return nil, "pattern required" end
     local maxFiles = params.max_files or 50
@@ -448,7 +450,6 @@ function tools.find_in_source(params)
 end
 
 function tools.decompile_all_in(params)
-    if not decompile then return missing("decompile") end
     local root = params.path and select(1, resolvePath(params.path)) or game
     if not root then return nil, "root not found" end
     local maxFiles = params.max_files or 25
@@ -467,15 +468,7 @@ function tools.decompile_all_in(params)
     return out
 end
 
-function tools.get_calling_script(_)
-    if not getcallingscript then return missing("getcallingscript") end
-    local s = getcallingscript()
-    if not s then return { script = nil } end
-    return { class = s.ClassName, path = s:GetFullName() }
-end
-
 function tools.find_remote_callers(params)
-    if not decompile then return missing("decompile") end
     local remoteName = params.name
     if type(remoteName) ~= "string" then return nil, "name required (e.g. 'BuyItem')" end
     local maxFiles = params.max_files or 50
@@ -595,7 +588,6 @@ local function resolveSignal(spec)
 end
 
 function tools.get_signal_connections(params)
-    if not getconnections then return missing("getconnections") end
     local signal, err = resolveSignal(params.signal)
     if not signal then return nil, err end
     local conns = getconnections(signal)
@@ -609,13 +601,15 @@ function tools.get_signal_connections(params)
             pcall(function() entry.source = debug.info(c.Function, "s") end)
             pcall(function() entry.line = debug.info(c.Function, "l") end)
         end
+        if c.Script then
+            pcall(function() entry.script_path = c.Script:GetFullName() end)
+        end
         out[#out + 1] = entry
     end
     return out
 end
 
 function tools.fire_signal(params)
-    if not firesignal then return missing("firesignal") end
     local signal, err = resolveSignal(params.signal)
     if not signal then return nil, err end
     local args = params.args or {}
@@ -625,22 +619,23 @@ function tools.fire_signal(params)
 end
 
 function tools.replicate_signal(params)
-    if not replicatesignal then return missing("replicatesignal") end
     local signal, err = resolveSignal(params.signal)
     if not signal then return nil, err end
-    if cansignalreplicate then
-        local can = false
-        pcall(function() can = cansignalreplicate(signal) end)
-        if not can then return nil, "signal is not in the replication whitelist" end
-    end
+    local can = false
+    pcall(function() can = cansignalreplicate(signal) end)
+    if not can then return nil, "signal is not in the replication whitelist" end
     local args = params.args or {}
     local ok, e = pcall(replicatesignal, signal, table.unpack(args))
     if not ok then return nil, tostring(e) end
     return { status = "replicated", signal = params.signal }
 end
 
+function tools.get_signal_whitelist(_)
+    local list = getsignalwhitelist()
+    return list
+end
+
 function tools.get_callback(params)
-    if not getcallbackvalue then return missing("getcallbackvalue") end
     local inst, err = resolvePath(params.path)
     if not inst then return nil, err end
     local cb = getcallbackvalue(inst, params.name)
@@ -648,26 +643,22 @@ function tools.get_callback(params)
     local out = { has_callback = true }
     pcall(function() out.source = debug.info(cb, "s") end)
     pcall(function() out.line = debug.info(cb, "l") end)
-    if debug.getupvalues then
-        local ok, ups = pcall(debug.getupvalues, cb)
-        if ok then out.upvalues = serialize(ups) end
-    end
+    local ok, ups = pcall(debug.getupvalues, cb)
+    if ok then out.upvalues = serialize(ups) end
     return out
 end
 
 function tools.fire_proximity_prompt(params)
-    if not fireproximityprompt then return missing("fireproximityprompt") end
     local inst, err = resolvePath(params.path)
     if not inst then return nil, err end
     if not inst:IsA("ProximityPrompt") then
         return nil, "not a ProximityPrompt (got " .. inst.ClassName .. ")"
     end
-    fireproximityprompt(inst, params.amount or 1, params.skip ~= false)
+    fireproximityprompt(inst)
     return { status = "fired", path = inst:GetFullName() }
 end
 
 function tools.fire_click_detector(params)
-    if not fireclickdetector then return missing("fireclickdetector") end
     local inst, err = resolvePath(params.path)
     if not inst then return nil, err end
     if not inst:IsA("ClickDetector") then
@@ -678,19 +669,23 @@ function tools.fire_click_detector(params)
 end
 
 function tools.fire_touch_interest(params)
-    if not firetouchinterest then return missing("firetouchinterest") end
-    local part, errP = resolvePath(params.part)
-    if not part then return nil, "part: " .. tostring(errP) end
+    local source, errS = resolvePath(params.part)
+    if not source then return nil, "part: " .. tostring(errS) end
     local target, errT = resolvePath(params.target)
     if not target then return nil, "target: " .. tostring(errT) end
-    local toggle = params.toggle
-    if toggle ~= 0 and toggle ~= 1 then return nil, "toggle must be 0 (TouchEnded) or 1 (Touched)" end
-    firetouchinterest(part, target, toggle)
-    return { status = "fired", toggle = toggle }
+    local touch
+    if params.toggle == 1 or params.toggle == true then
+        touch = true
+    elseif params.toggle == 0 or params.toggle == false then
+        touch = false
+    else
+        return nil, "toggle must be boolean or 0/1"
+    end
+    firetouchinterest(source, target, touch)
+    return { status = "fired", touch = touch }
 end
 
 function tools.get_loaded_modules(_)
-    if not getloadedmodules then return missing("getloadedmodules") end
     local out = {}
     for _, m in ipairs(getloadedmodules()) do
         out[#out + 1] = { path = m:GetFullName(), class = m.ClassName }
@@ -699,7 +694,6 @@ function tools.get_loaded_modules(_)
 end
 
 function tools.get_running_scripts(_)
-    if not getrunningscripts then return missing("getrunningscripts") end
     local out = {}
     for _, s in ipairs(getrunningscripts()) do
         out[#out + 1] = { path = s:GetFullName(), class = s.ClassName }
@@ -708,7 +702,6 @@ function tools.get_running_scripts(_)
 end
 
 function tools.gc_search(params)
-    if not getgc then return missing("getgc") end
     local kind = params.kind or "all"
     local query = params.query
     local maxResults = params.max_results or 50
@@ -749,13 +742,12 @@ function tools.gc_search(params)
 end
 
 function tools.filter_gc(params)
-    if not filtergc then return missing("filtergc") end
     local kind = params.kind or "function"
     if kind ~= "function" and kind ~= "table" then
         return nil, "kind must be 'function' or 'table'"
     end
     local options = params.options or {}
-    local ok, results = pcall(filtergc, kind, options)
+    local ok, results = pcall(filtergc, kind, options, false)
     if not ok then return nil, tostring(results) end
     local maxResults = params.max_results or 50
     local out = {}
@@ -784,16 +776,10 @@ function tools.get_globals(params)
     local env
     if kind == "_G" then env = _G
     elseif kind == "shared" then env = shared
-    elseif kind == "genv" then
-        if not getgenv then return missing("getgenv") end
-        env = getgenv()
-    elseif kind == "renv" then
-        if not getrenv then return missing("getrenv") end
-        env = getrenv()
+    elseif kind == "genv" then env = getgenv()
+    elseif kind == "renv" then env = getrenv()
     elseif kind == "fenv" then env = getfenv()
-    elseif kind == "reg" then
-        if not getreg then return missing("getreg") end
-        env = getreg()
+    elseif kind == "reg" then env = getreg()
     else return nil, "unknown kind (use _G, shared, genv, renv, fenv, reg)" end
     local out = {}
     for k, v in pairs(env) do out[tostring(k)] = type(v) end
@@ -812,33 +798,22 @@ function tools.inspect_function(params)
     pcall(function() out.source = debug.info(target, "s") end)
     pcall(function() out.line = debug.info(target, "l") end)
     pcall(function() out.name = debug.info(target, "n") end)
-    pcall(function() out.is_c = iscclosure and iscclosure(target) or nil end)
-    pcall(function() out.is_executor = isexecutorclosure and isexecutorclosure(target) or nil end)
-    if debug.getupvalues then
-        local ok2, ups = pcall(debug.getupvalues, target)
-        if ok2 then out.upvalues = serialize(ups) end
-    end
-    if debug.getconstants then
-        local ok2, cs = pcall(debug.getconstants, target)
-        if ok2 then out.constants = serialize(cs) end
-    end
-    if debug.getprotos then
-        local ok2, ps = pcall(debug.getprotos, target)
-        if ok2 then out.proto_count = #ps end
-    end
-    if getfunctionhash then
-        local ok2, h = pcall(getfunctionhash, target); if ok2 then out.hash = h end
-    end
+    pcall(function() out.is_c = iscclosure(target) end)
+    pcall(function() out.is_executor = isexecutorclosure(target) end)
+    pcall(function() out.is_newcclosure = isnewcclosure(target) end)
+    pcall(function() out.is_hooked = isfunctionhooked(target) end)
+    local ok2, ups = pcall(debug.getupvalues, target); if ok2 then out.upvalues = serialize(ups) end
+    local ok3, cs = pcall(debug.getconstants, target); if ok3 then out.constants = serialize(cs) end
+    local ok4, ps = pcall(debug.getprotos, target);   if ok4 then out.proto_count = #ps end
+    local ok5, h = pcall(getfunctionhash, target);    if ok5 then out.hash = h end
     return out
 end
 
 function tools.get_thread_identity(_)
-    if not getthreadidentity then return missing("getthreadidentity") end
     return { identity = getthreadidentity() }
 end
 
 function tools.set_thread_identity(params)
-    if not setthreadidentity then return missing("setthreadidentity") end
     local id = tonumber(params.identity)
     if not id then return nil, "identity (1-8) required" end
     setthreadidentity(id)
@@ -846,7 +821,6 @@ function tools.set_thread_identity(params)
 end
 
 function tools.get_metatable(params)
-    if not getrawmetatable then return missing("getrawmetatable") end
     local code = params.code
     if type(code) ~= "string" then return nil, "code expr required (must return the object)" end
     local fn, err = lua_load(code, "get_metatable")
@@ -897,161 +871,161 @@ function tools.teleport(params)
 end
 
 function tools.read_file(params)
-    if not readfile then return missing("readfile") end
-    if isfile and not isfile(params.path) then return nil, "not a file" end
+    if not isfile(params.path) then return nil, "not a file" end
     local ok, content = pcall(readfile, params.path)
     if not ok then return nil, tostring(content) end
     return content
 end
 
 function tools.write_file(params)
-    if not writefile then return missing("writefile") end
     local ok, err = pcall(writefile, params.path, params.content or "")
     if not ok then return nil, tostring(err) end
     return { status = "written", bytes = #(params.content or "") }
 end
 
 function tools.append_file(params)
-    if not appendfile then return missing("appendfile") end
     local ok, err = pcall(appendfile, params.path, params.content or "")
     if not ok then return nil, tostring(err) end
     return { status = "appended", bytes = #(params.content or "") }
 end
 
 function tools.delete_file(params)
-    if not delfile then return missing("delfile") end
     local ok, err = pcall(delfile, params.path)
     if not ok then return nil, tostring(err) end
     return { status = "deleted" }
 end
 
 function tools.list_files(params)
-    if not listfiles then return missing("listfiles") end
     local ok, files = pcall(listfiles, params.folder or "")
     if not ok then return nil, tostring(files) end
     return files
 end
 
 function tools.make_folder(params)
-    if not makefolder then return missing("makefolder") end
     local ok, err = pcall(makefolder, params.path)
     if not ok then return nil, tostring(err) end
     return { status = "created" }
 end
 
 function tools.delete_folder(params)
-    if not delfolder then return missing("delfolder") end
     local ok, err = pcall(delfolder, params.path)
     if not ok then return nil, tostring(err) end
     return { status = "deleted" }
 end
 
+function tools.get_custom_asset(params)
+    local ok, res = pcall(getcustomasset, params.path)
+    if not ok then return nil, tostring(res) end
+    return { asset_id = res }
+end
+
+function tools.get_objects(params)
+    local ok, res = pcall(getobjects, params.asset)
+    if not ok then return nil, tostring(res) end
+    local out = {}
+    for _, inst in ipairs(res) do
+        out[#out + 1] = { name = inst.Name, class = inst.ClassName }
+    end
+    return { count = #out, items = out }
+end
+
 function tools.save_instance(params)
-    if not saveinstance then return missing("saveinstance") end
-    local opts = { FilePath = params.file_path, Mode = params.mode or "optimized" }
+    local obj
     if params.path then
         local inst, err = resolvePath(params.path)
         if not inst then return nil, err end
-        opts.Object = inst
+        obj = inst
     end
-    if params.extra_paths then
-        local extras = {}
-        for _, p in ipairs(params.extra_paths) do
-            local i = resolvePath(p); if i then extras[#extras + 1] = i end
-        end
-        opts.ExtraInstances = extras
-    end
-    if params.nil_instances ~= nil then opts.NilInstances = params.nil_instances end
-    if params.remove_player_chars ~= nil then opts.RemovePlayerCharacters = params.remove_player_chars end
-    local ok, err = pcall(saveinstance, opts)
+    local options = {}
+    if params.file_name        then options.FileName               = params.file_name end
+    if params.decompile ~= nil then options.Decompile              = params.decompile end
+    if params.nil_instances ~= nil       then options.NilInstances           = params.nil_instances end
+    if params.remove_player_chars ~= nil then options.RemovePlayerCharacters = params.remove_player_chars end
+    if params.save_players ~= nil        then options.SavePlayers            = params.save_players end
+    if params.decompile_timeout then options.DecompileTimeout        = params.decompile_timeout end
+    if params.max_threads      then options.MaxThreads              = params.max_threads end
+    if params.decompile_ignore then options.DecompileIgnore         = params.decompile_ignore end
+    if params.show_status ~= nil         then options.ShowStatus              = params.show_status end
+    if params.ignore_default_props ~= nil then options.IgnoreDefaultProps     = params.ignore_default_props end
+    if params.isolate_starter_player ~= nil then options.IsolateStarterPlayer = params.isolate_starter_player end
+    local ok, err = pcall(saveinstance, obj, options)
     if not ok then return nil, tostring(err) end
-    return { status = "saved", file_path = params.file_path }
-end
-
-function tools.save_place(params)
-    if not saveplace then return missing("saveplace") end
-    local ok, err = pcall(saveplace, params.filename)
-    if not ok then return nil, tostring(err) end
-    return { status = "saved", filename = params.filename }
+    return { status = "saved", file_name = options.FileName }
 end
 
 function tools.crypt_hash(params)
-    if not (crypt and crypt.hash) then return missing("crypt.hash") end
-    local algo = params.algorithm or "SHA256"
+    local algo = params.algorithm or "sha256"
     local ok, h = pcall(crypt.hash, params.data, algo)
     if not ok then return nil, tostring(h) end
     return { hash = h, algorithm = algo }
 end
 
 function tools.crypt_hmac(params)
-    if not (crypt and crypt.hmac) then return missing("crypt.hmac") end
-    local algo = params.algorithm or "SHA256"
-    local ok, h = pcall(crypt.hmac, params.data, params.key, algo)
+    local algo = params.algorithm or "sha256"
+    local ok, h = pcall(crypt.hmac, params.key, params.data, algo)
     if not ok then return nil, tostring(h) end
     return { hmac = h, algorithm = algo }
 end
 
 function tools.crypt_encrypt(params)
-    if not (crypt and crypt.encrypt) then return missing("crypt.encrypt") end
-    local ok, c = pcall(crypt.encrypt, params.data, params.key, params.iv, params.algorithm)
+    local ok, c, iv = pcall(crypt.encrypt, params.data, params.key, params.iv, params.algorithm)
     if not ok then return nil, tostring(c) end
-    return { ciphertext = c }
+    return { ciphertext = c, iv = iv }
 end
 
 function tools.crypt_decrypt(params)
-    if not (crypt and crypt.decrypt) then return missing("crypt.decrypt") end
-    local ok, p = pcall(crypt.decrypt, params.data, params.key, params.iv, params.algorithm)
+    local ok, p = pcall(crypt.decrypt, params.data, params.key, params.iv, params.algorithm or "CBC")
     if not ok then return nil, tostring(p) end
     return { plaintext = p }
 end
 
 function tools.crypt_random(params)
-    if not (crypt and crypt.random) then return missing("crypt.random") end
     local ok, b = pcall(crypt.random, params.length or 32)
     if not ok then return nil, tostring(b) end
-    local enc = base64encode and base64encode(b) or "<base64 unavailable>"
-    return { bytes_base64 = enc, length = params.length or 32 }
+    return { bytes_base64 = crypt.base64encode(b), length = params.length or 32 }
+end
+
+function tools.crypt_generatekey(params)
+    local ok, k = pcall(crypt.generatekey, params.length)
+    if not ok then return nil, tostring(k) end
+    return { key = k }
 end
 
 function tools.base64_encode(params)
-    if not base64encode then return missing("base64encode") end
-    return { encoded = base64encode(params.data) }
+    return { encoded = crypt.base64encode(params.data) }
 end
 
 function tools.base64_decode(params)
-    if not base64decode then return missing("base64decode") end
-    local ok, d = pcall(base64decode, params.data)
+    local ok, d = pcall(crypt.base64decode, params.data)
     if not ok then return nil, tostring(d) end
     return { decoded = d }
 end
 
 function tools.lz4_compress(params)
-    if not lz4compress then return missing("lz4compress") end
-    local ok, c = pcall(lz4compress, params.data)
+    local ok, c = pcall(crypt.lz4compress, params.data)
     if not ok then return nil, tostring(c) end
     return {
         size = #c,
         original_size = #params.data,
-        compressed_base64 = base64encode and base64encode(c) or "<base64 unavailable>",
+        compressed_base64 = crypt.base64encode(c),
     }
 end
 
 function tools.lz4_decompress(params)
-    if not lz4decompress then return missing("lz4decompress") end
     local data = params.data
-    if params.base64 and base64decode then data = base64decode(data) end
-    local ok, d = pcall(lz4decompress, data, params.size)
+    if params.base64 then data = crypt.base64decode(data) end
+    local ok, d = pcall(crypt.lz4decompress, data, params.size)
     if not ok then return nil, tostring(d) end
     return { decompressed = d, size = #d }
 end
 
 function tools.http_request(params)
-    if not request then return missing("request") end
     local opts = {
         Url = params.url,
         Method = params.method or "GET",
         Headers = params.headers,
         Body = params.body,
+        Cookies = params.cookies,
     }
     local ok, res = pcall(request, opts)
     if not ok then return nil, tostring(res) end
@@ -1064,25 +1038,27 @@ function tools.http_request(params)
     }
 end
 
+function tools.http_get(params)
+    local ok, body = pcall(httpget, params.url)
+    if not ok then return nil, tostring(body) end
+    return body
+end
+
 function tools.is_window_active(_)
-    if not iswindowactive then return missing("iswindowactive") end
-    return { active = iswindowactive() }
+    return { active = isrbxactive() }
 end
 
 function tools.key_click(params)
-    if not keyclick then return missing("keyclick") end
-    keyclick(params.keycode)
-    return { status = "clicked", keycode = params.keycode }
+    keytap(params.keycode)
+    return { status = "tapped", keycode = params.keycode }
 end
 
 function tools.key_press(params)
-    if not keypress then return missing("keypress") end
     keypress(params.keycode)
     return { status = "pressed", keycode = params.keycode }
 end
 
 function tools.key_release(params)
-    if not keyrelease then return missing("keyrelease") end
     keyrelease(params.keycode)
     return { status = "released", keycode = params.keycode }
 end
@@ -1090,134 +1066,115 @@ end
 function tools.mouse_click(params)
     local button = params.button or "left"
     if button == "left" then
-        if not mouse1click then return missing("mouse1click") end
         mouse1click()
     elseif button == "right" then
-        if not mouse2click then return missing("mouse2click") end
         mouse2click()
-    else return nil, "button must be 'left' or 'right'" end
+    else
+        return nil, "button must be 'left' or 'right'"
+    end
     return { status = "clicked", button = button }
 end
 
 function tools.mouse_move(params)
     if params.relative then
-        if not mousemoverel then return missing("mousemoverel") end
         mousemoverel(params.x, params.y)
     else
-        if not mousemoveabs then return missing("mousemoveabs") end
         mousemoveabs(params.x, params.y)
     end
     return { status = "moved", x = params.x, y = params.y, relative = params.relative == true }
 end
 
 function tools.mouse_scroll(params)
-    if not mousescroll then return missing("mousescroll") end
     mousescroll(params.delta)
     return { status = "scrolled", delta = params.delta }
 end
 
 function tools.console_show(_)
-    if not rconsoleshow then return missing("rconsoleshow") end
-    rconsoleshow()
+    rconsolecreate()
     return { status = "shown" }
 end
 
 function tools.console_hide(_)
-    if not rconsolehide then return missing("rconsolehide") end
-    rconsolehide()
+    rconsoledestroy()
     return { status = "hidden" }
 end
 
 function tools.console_print(params)
-    local fn = (params.level == "warn" and rconsolewarn)
-        or (params.level == "error" and rconsoleerr)
+    local fn = (params.level == "warn"  and rconsolewarn)
+        or (params.level == "error" and rconsoleerror)
         or (params.level == "info"  and rconsoleinfo)
         or rconsoleprint
-    if not fn then return missing("rconsoleprint") end
     fn(tostring(params.text))
     return { status = "printed" }
 end
 
 function tools.console_clear(_)
-    if not rconsoleclear then return missing("rconsoleclear") end
     rconsoleclear()
     return { status = "cleared" }
 end
 
 function tools.console_title(params)
-    if not rconsolename then return missing("rconsolename") end
-    rconsolename(params.title)
+    rconsolesettitle(params.title)
     return { status = "set", title = params.title }
 end
 
 function tools.identify_executor(_)
-    if not identifyexecutor then return missing("identifyexecutor") end
-    local name, ver = identifyexecutor()
-    return { name = name, version = ver }
+    local name, version = identifyexecutor()
+    return { name = name, version = version }
 end
 
 function tools.get_hwid(_)
-    if not gethwid then return missing("gethwid") end
     return { hwid = gethwid() }
 end
 
 function tools.get_fps_cap(_)
-    if not getfpscap then return missing("getfpscap") end
     return { fps = getfpscap() }
 end
 
 function tools.set_fps_cap(params)
-    if not setfpscap then return missing("setfpscap") end
     setfpscap(params.fps)
     return { fps = params.fps }
 end
 
 function tools.set_clipboard(params)
-    if not setclipboard then return missing("setclipboard") end
     setclipboard(params.text)
     return { status = "copied", bytes = #(params.text or "") }
 end
 
 function tools.get_fflag(params)
-    if not getfflag then return missing("getfflag") end
     local ok, v = pcall(getfflag, params.name)
     if not ok then return nil, tostring(v) end
     return { name = params.name, value = v }
 end
 
 function tools.set_fflag(params)
-    if not setfflag then return missing("setfflag") end
-    local ok, err = pcall(setfflag, params.name, tostring(params.value))
+    local ok, err = pcall(setfflag, params.name, params.value)
     if not ok then return nil, tostring(err) end
-    return { name = params.name, value = tostring(params.value) }
+    return { name = params.name, value = params.value }
 end
 
 function tools.message_box(params)
-    if not messagebox then return missing("messagebox") end
     local result = messagebox(params.text or "", params.caption or "Roblox-Bridge", params.flags or 0)
     return { result = result }
 end
 
 function tools.queue_on_teleport(params)
-    if not queueonteleport then return missing("queueonteleport") end
     local ok, err = pcall(queueonteleport, params.code)
     if not ok then return nil, tostring(err) end
     return { status = "queued" }
 end
 
 function tools.clear_teleport_queue(_)
-    if not clearqueueonteleport then return missing("clearqueueonteleport") end
-    clearqueueonteleport()
+    clearteleportqueue()
     return { status = "cleared" }
 end
 
 function tools.draw_create(params)
-    if not Drawing then return missing("Drawing") end
     local ok, d = pcall(Drawing.new, params.type)
     if not ok then return nil, tostring(d) end
     if params.properties then
         for k, v in pairs(params.properties) do
-            pcall(function() d[k] = v end)
+            pcall(setrenderproperty, d, k, v)
         end
     end
     local id = state.next_draw_id
@@ -1229,7 +1186,6 @@ end
 function tools.draw_set(params)
     local d = state.drawings[params.id]
     if not d then return nil, "no drawing with id " .. tostring(params.id) end
-    if not setrenderproperty then return missing("setrenderproperty") end
     for k, v in pairs(params.properties or {}) do
         local ok, err = pcall(setrenderproperty, d, k, v)
         if not ok then return nil, ("set %s: %s"):format(k, tostring(err)) end
@@ -1246,34 +1202,9 @@ function tools.draw_remove(params)
 end
 
 function tools.draw_clear(_)
-    if cleardrawcache then cleardrawcache() end
+    cleardrawcache()
     state.drawings = {}
     return { status = "cleared" }
-end
-
-function tools.cache_invalidate(params)
-    if not (cache and cache.invalidate) then return missing("cache.invalidate") end
-    local inst, err = resolvePath(params.path)
-    if not inst then return nil, err end
-    cache.invalidate(inst)
-    return { status = "invalidated", path = inst:GetFullName() }
-end
-
-function tools.cache_replace(params)
-    if not (cache and cache.replace) then return missing("cache.replace") end
-    local a, errA = resolvePath(params.path)
-    if not a then return nil, errA end
-    local b, errB = resolvePath(params.replacement)
-    if not b then return nil, errB end
-    cache.replace(a, b)
-    return { status = "replaced", path = a:GetFullName(), replacement = b:GetFullName() }
-end
-
-function tools.cache_iscached(params)
-    if not (cache and cache.iscached) then return missing("cache.iscached") end
-    local inst, err = resolvePath(params.path)
-    if not inst then return nil, err end
-    return { cached = cache.iscached(inst) }
 end
 
 local function readBody(resp)
@@ -1324,7 +1255,7 @@ end
 local names = {}
 for k in pairs(tools) do names[#names + 1] = k end
 table.sort(names)
-print(("[Claude Gateway] %d tools loaded"):format(#names))
+print(("[Claude Gateway] %d tools loaded (Potassium)"):format(#names))
 print("[Claude Gateway] connecting to " .. HOST)
 
 local announced = false
@@ -1332,7 +1263,7 @@ while true do
     local resp, err = post("/poll", {})
     if not resp then
         warn("[Claude Gateway] poll failed: " .. tostring(err) .. " (retrying in 2s)")
-        wait_(2)
+        task.wait(2)
     else
         if not announced then
             announced = true
@@ -1342,12 +1273,12 @@ while true do
         if body and #body > 0 then
             local decodeOk, cmd = pcall(jdec, body)
             if decodeOk and cmd and cmd.id and cmd.method then
-                spawn_(handleCommand, cmd)
+                task.spawn(handleCommand, cmd)
             else
-                wait_(0.5)
+                task.wait(0.5)
             end
         else
-            wait_(0.1)
+            task.wait(0.1)
         end
     end
 end
