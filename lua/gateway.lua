@@ -110,7 +110,7 @@ do
         warn("[Claude Gateway] missing: " .. table.concat(missing_list, ", "))
     end
     if RAKNET_AVAILABLE then
-        print("[Claude Gateway] raknet available (enable in Potassium UI to actually send/receive; ban risk per docs)")
+        warn("[Claude Gateway] raknet API surface is exposed but it's a no-op unless you turn it on in Potassium's UI settings (ban risk per docs)")
     end
 end
 
