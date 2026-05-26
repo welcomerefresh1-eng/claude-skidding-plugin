@@ -12,15 +12,106 @@ do
     print(string.format("[Claude Gateway] Potassium %s detected", tostring(version)))
 end
 
-local RAKNET_AVAILABLE = (type(raknet) == "table"
-    and type(raknet.send) == "function"
-    and type(raknet.add_send_hook) == "function"
-    and type(raknet.remove_send_hook) == "function") or false
+local RAKNET_AVAILABLE = false
 
-if RAKNET_AVAILABLE then
-    print("[Claude Gateway] raknet API is exposed (enable it in Potassium UI to actually send/receive — ban risk per Potassium docs)")
-else
-    print("[Claude Gateway] raknet API not present in this Potassium build")
+do
+    local passed, failed, missing_list = 0, 0, {}
+    local function check(name, value)
+        if value ~= nil then
+            print("[Claude Gateway] \xE2\x9C\x93 " .. name .. " passed")
+            passed = passed + 1
+            return true
+        else
+            warn("[Claude Gateway] \xE2\x9C\x97 " .. name .. " failed")
+            failed = failed + 1
+            missing_list[#missing_list + 1] = name
+            return false
+        end
+    end
+
+    print("[Claude Gateway] === Potassium API availability check ===")
+
+    local globals = {
+        "identifyexecutor",
+        "getfunctionhash", "hookfunction", "iscclosure", "isexecutorclosure",
+        "isfunctionhooked", "islclosure", "isnewcclosure", "isourthread",
+        "loadstring", "newcclosure", "newlclosure", "restorefunction", "setstackhidden",
+        "rconsoleclear", "rconsolecreate", "rconsoledestroy", "rconsoleerror",
+        "rconsoleinfo", "rconsoleinput", "rconsoleprint", "rconsolesettitle", "rconsolewarn",
+        "filtergc", "getgc", "getgenv", "getreg", "getrenv", "getsenv", "gettenv",
+        "readfile", "writefile", "appendfile", "delfile", "isfile", "isfolder",
+        "loadfile", "dofile", "listfiles", "makefolder", "delfolder",
+        "isrbxactive", "keypress", "keyrelease", "keytap",
+        "mouse1click", "mouse1press", "mouse1release",
+        "mouse2click", "mouse2press", "mouse2release",
+        "mousemoveabs", "mousemoverel", "mousescroll",
+        "fireclickdetector", "fireproximityprompt", "firetouchinterest",
+        "getcallbackvalue", "getcustomasset", "gethui", "getinstances",
+        "getnilinstances", "getrendersteppedlist",
+        "getnamecallmethod", "setnamecallmethod", "getrawmetatable", "setrawmetatable",
+        "hookmetamethod", "isreadonly", "setreadonly", "makereadonly", "makewritable",
+        "decompile", "getfflag", "getfflagtype", "setfflag",
+        "getfpscap", "setfpscap", "gethwid", "httpget", "request", "getobjects",
+        "messagebox", "saveinstance", "setclipboard", "setrbxclipboard",
+        "queueonteleport", "clearteleportqueue",
+        "gethiddenproperty", "sethiddenproperty", "gethiddenproperties", "getproperties",
+        "isscriptable", "setscriptable", "getbspval", "getpcd",
+        "getproximitypromptduration", "setproximitypromptduration",
+        "getsimulationradius", "setsimulationradius", "isnetworkowner",
+        "getscripts", "getrunningscripts", "getloadedmodules",
+        "getscriptbytecode", "getscriptclosure", "getscripthash",
+        "getscriptthread", "getscriptfromthread",
+        "getthreadidentity", "setthreadidentity",
+        "firesignal", "replicatesignal", "cansignalreplicate",
+        "getconnection", "getconnections",
+        "getsignalarguments", "getsignalargumentsinfo", "getsignalwhitelist",
+        "cleardrawcache", "setrenderproperty", "getrenderproperty", "isrenderobj",
+    }
+    for _, n in ipairs(globals) do check(n, _G[n]) end
+
+    local tables = {
+        { "Drawing", { "new", "Fonts" } },
+        { "crypt", { "base64decode", "base64encode", "decrypt", "encrypt",
+                     "generatebytes", "generatekey", "hash", "hmac",
+                     "lz4compress", "lz4decompress", "random" } },
+        { "raknet", { "send", "add_send_hook", "remove_send_hook" } },
+        { "oth", { "hook", "unhook", "is_hook_thread", "get_original_thread", "get_root_callback" } },
+        { "WebSocket", { "connect" } },
+        { "PsmSignal", { "new" } },
+        { "Regex", { "new", "Escape" } },
+        { "DrawingImmediate", { "GetPaint", "Line", "Circle", "FilledCircle",
+                                "Triangle", "FilledTriangle", "Rectangle", "FilledRectangle",
+                                "Quad", "FilledQuad", "Text", "OutlinedText" } },
+    }
+    local raknet_pass = 0
+    for _, entry in ipairs(tables) do
+        local parent, fields = entry[1], entry[2]
+        local p = _G[parent]
+        local parent_present = check(parent, p)
+        for _, field in ipairs(fields) do
+            local fullname = parent .. "." .. field
+            local val = parent_present and type(p) == "table" and p[field] or nil
+            local ok = check(fullname, val)
+            if parent == "raknet" and ok then raknet_pass = raknet_pass + 1 end
+        end
+    end
+
+    local debug_funcs = { "getcallstack", "getconstant", "getconstants", "getinfo",
+                          "getproto", "getprotos", "getregistry", "getsafeenv",
+                          "getstack", "getupvalue", "getupvalues", "isvalidlevel",
+                          "setconstant", "setinfo", "setname", "setsafeenv",
+                          "setstack", "setupvalue" }
+    for _, f in ipairs(debug_funcs) do check("debug." .. f, debug and debug[f]) end
+
+    RAKNET_AVAILABLE = raknet_pass == 3
+
+    print(string.format("[Claude Gateway] === %d passed, %d failed ===", passed, failed))
+    if failed > 0 then
+        warn("[Claude Gateway] missing: " .. table.concat(missing_list, ", "))
+    end
+    if RAKNET_AVAILABLE then
+        print("[Claude Gateway] raknet available (enable in Potassium UI to actually send/receive; ban risk per docs)")
+    end
 end
 
 local HOST = "http://127.0.0.1:7474"
