@@ -15,14 +15,23 @@ end
 local RAKNET_AVAILABLE = false
 
 do
+    local function lookup(expr)
+        local fn = loadstring("return " .. expr, "check")
+        if not fn then return nil end
+        local ok, val = pcall(fn)
+        if not ok then return nil end
+        return val
+    end
+
     local passed, failed, missing_list = 0, 0, {}
-    local function check(name, value)
+    local function check(name)
+        local value = lookup(name)
         if value ~= nil then
-            print("[Claude Gateway] \xE2\x9C\x93 " .. name .. " passed")
+            print("[Claude Gateway] PASS " .. name)
             passed = passed + 1
             return true
         else
-            warn("[Claude Gateway] \xE2\x9C\x97 " .. name .. " failed")
+            warn("[Claude Gateway] FAIL " .. name)
             failed = failed + 1
             missing_list[#missing_list + 1] = name
             return false
@@ -31,7 +40,7 @@ do
 
     print("[Claude Gateway] === Potassium API availability check ===")
 
-    local globals = {
+    local names = {
         "identifyexecutor",
         "getfunctionhash", "hookfunction", "iscclosure", "isexecutorclosure",
         "isfunctionhooked", "islclosure", "isnewcclosure", "isourthread",
@@ -66,44 +75,35 @@ do
         "getconnection", "getconnections",
         "getsignalarguments", "getsignalargumentsinfo", "getsignalwhitelist",
         "cleardrawcache", "setrenderproperty", "getrenderproperty", "isrenderobj",
+        "Drawing", "Drawing.new", "Drawing.Fonts",
+        "crypt",
+        "crypt.base64decode", "crypt.base64encode", "crypt.decrypt", "crypt.encrypt",
+        "crypt.generatebytes", "crypt.generatekey", "crypt.hash", "crypt.hmac",
+        "crypt.lz4compress", "crypt.lz4decompress", "crypt.random",
+        "raknet", "raknet.send", "raknet.add_send_hook", "raknet.remove_send_hook",
+        "oth", "oth.hook", "oth.unhook", "oth.is_hook_thread",
+        "oth.get_original_thread", "oth.get_root_callback",
+        "WebSocket", "WebSocket.connect",
+        "PsmSignal", "PsmSignal.new",
+        "Regex", "Regex.new", "Regex.Escape",
+        "DrawingImmediate",
+        "DrawingImmediate.GetPaint", "DrawingImmediate.Line", "DrawingImmediate.Circle",
+        "DrawingImmediate.FilledCircle", "DrawingImmediate.Triangle",
+        "DrawingImmediate.FilledTriangle", "DrawingImmediate.Rectangle",
+        "DrawingImmediate.FilledRectangle", "DrawingImmediate.Quad",
+        "DrawingImmediate.FilledQuad", "DrawingImmediate.Text",
+        "DrawingImmediate.OutlinedText",
+        "debug.getcallstack", "debug.getconstant", "debug.getconstants", "debug.getinfo",
+        "debug.getproto", "debug.getprotos", "debug.getregistry", "debug.getsafeenv",
+        "debug.getstack", "debug.getupvalue", "debug.getupvalues", "debug.isvalidlevel",
+        "debug.setconstant", "debug.setinfo", "debug.setname", "debug.setsafeenv",
+        "debug.setstack", "debug.setupvalue",
     }
-    for _, n in ipairs(globals) do check(n, _G[n]) end
+    for _, n in ipairs(names) do check(n) end
 
-    local tables = {
-        { "Drawing", { "new", "Fonts" } },
-        { "crypt", { "base64decode", "base64encode", "decrypt", "encrypt",
-                     "generatebytes", "generatekey", "hash", "hmac",
-                     "lz4compress", "lz4decompress", "random" } },
-        { "raknet", { "send", "add_send_hook", "remove_send_hook" } },
-        { "oth", { "hook", "unhook", "is_hook_thread", "get_original_thread", "get_root_callback" } },
-        { "WebSocket", { "connect" } },
-        { "PsmSignal", { "new" } },
-        { "Regex", { "new", "Escape" } },
-        { "DrawingImmediate", { "GetPaint", "Line", "Circle", "FilledCircle",
-                                "Triangle", "FilledTriangle", "Rectangle", "FilledRectangle",
-                                "Quad", "FilledQuad", "Text", "OutlinedText" } },
-    }
-    local raknet_pass = 0
-    for _, entry in ipairs(tables) do
-        local parent, fields = entry[1], entry[2]
-        local p = _G[parent]
-        local parent_present = check(parent, p)
-        for _, field in ipairs(fields) do
-            local fullname = parent .. "." .. field
-            local val = parent_present and type(p) == "table" and p[field] or nil
-            local ok = check(fullname, val)
-            if parent == "raknet" and ok then raknet_pass = raknet_pass + 1 end
-        end
-    end
-
-    local debug_funcs = { "getcallstack", "getconstant", "getconstants", "getinfo",
-                          "getproto", "getprotos", "getregistry", "getsafeenv",
-                          "getstack", "getupvalue", "getupvalues", "isvalidlevel",
-                          "setconstant", "setinfo", "setname", "setsafeenv",
-                          "setstack", "setupvalue" }
-    for _, f in ipairs(debug_funcs) do check("debug." .. f, debug and debug[f]) end
-
-    RAKNET_AVAILABLE = raknet_pass == 3
+    RAKNET_AVAILABLE = lookup("raknet.send") ~= nil
+        and lookup("raknet.add_send_hook") ~= nil
+        and lookup("raknet.remove_send_hook") ~= nil
 
     print(string.format("[Claude Gateway] === %d passed, %d failed ===", passed, failed))
     if failed > 0 then
