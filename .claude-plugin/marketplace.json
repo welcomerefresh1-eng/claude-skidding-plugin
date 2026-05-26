@@ -1,0 +1,14 @@
+{
+  "name": "veyra-marketplace",
+  "owner": {
+    "name": "Veyra"
+  },
+  "plugins": [
+    {
+      "name": "roblox-bridge",
+      "source": "./",
+      "version": "0.1.0",
+      "description": "Bridge between Claude Code and a Roblox executor. Exposes execute_lua via MCP so Claude can run Lua inside a running Roblox game through a small gateway script."
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+mcp-server/node_modules/
+.claude/
+.DS_Store
+*.log

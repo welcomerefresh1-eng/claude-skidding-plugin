@@ -1,0 +1,8 @@
+{
+  "name": "roblox-bridge",
+  "version": "0.1.0",
+  "description": "Bridge between Claude Code and a Roblox executor. Claude can execute Lua inside a running Roblox game via an MCP server that talks to a small Lua gateway script running in the executor.",
+  "author": {
+    "name": "Veyra"
+  }
+}

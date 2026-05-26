@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "roblox-bridge": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp-server/index.js"],
+      "env": {
+        "ROBLOX_BRIDGE_PORT": "7474"
+      }
+    }
+  }
+}
