@@ -1,14 +1,14 @@
 # claude-skidding-plugin
 
-Claude Code plugin that hooks your AI up to your Roblox executor. You ask Claude to find, read, or fire stuff in a game — it does it for you. Comes with ~97 tools covering instance walking, decompiling, source grep, remote firing, GC scanning, drawing, input sim, crypto, file I/O, etc.
+Claude Code plugin that hooks your AI up to your Roblox executor. You ask Claude to find, read, or fire stuff in a game — it does it for you. ~95 dedicated tools covering instance walking, decompiling, source grep, remote firing, GC scanning, drawing, input sim, crypto, file I/O, network ownership, and more.
+
+**Potassium-only.** The gateway hard-fails on anything else (it calls `identifyexecutor()` at startup and refuses to run if the name isn't `"Potassium"`). The full Potassium API reference used to build the gateway is in [docs/potassium-api.md](docs/potassium-api.md).
 
 ## What you need
 
 - **Claude Code** installed (the AI CLI app)
 - **Node.js** installed — https://nodejs.org → click the big green "LTS" button → next next next finish
-- **A Roblox executor that's 100% sUNC compliant** (Volt, Potassium, or anything at that compliance level). Lower-tier executors are missing functions a lot of the tools need.
-
-If your executor can't even run `request({...})`, get a better one before going further.
+- **The Potassium executor** — https://potassium.pro. Nothing else will work; the gateway checks `identifyexecutor()` and exits if it's not Potassium.
 
 ## Install (do this once)
 
@@ -55,12 +55,13 @@ You should see `connected: false` (we haven't run the gateway yet). If you get a
 
 1. **Open Claude Code first.** It launches the MCP server in the background.
 2. **Open Roblox, join a game.**
-3. **In your executor, paste the contents of `lua/gateway.lua` and execute.**
+3. **In Potassium, paste the contents of `lua/gateway.lua` and execute.**
    - File path on disk: `%USERPROFILE%\.claude\plugins\marketplaces\welcomerefresh1-eng_claude-skidding-plugin\roblox-bridge\lua\gateway.lua`
    - Or grab it from GitHub: https://github.com/welcomerefresh1-eng/claude-skidding-plugin/blob/main/lua/gateway.lua
-4. **In your executor console** you should see:
+4. **In Potassium's console** you should see:
    ```
-   [Claude Gateway] 97 tools loaded
+   [Claude Gateway] Potassium vX.X.X detected
+   [Claude Gateway] N tools loaded (Potassium)
    [Claude Gateway] connecting to http://127.0.0.1:7474
    [Claude Gateway] connected, awaiting commands...
    ```
@@ -100,16 +101,16 @@ It'll do the full orient → grep → read → confirm flow on its own and repor
 
 ## Common problems
 
-**"No Roblox executor connected"**
-Your gateway is dead. Re-run `gateway.lua` in your executor.
+**"This gateway only runs on the Potassium executor"**
+You ran the gateway on a different executor. Switch to Potassium.
 
-**`executor missing required function X`**
-Your executor doesn't expose that function. The other 96 tools still work. Get a better executor if you need that one specific feature.
+**"No Roblox executor connected"**
+Your gateway is dead. Re-run `gateway.lua` in Potassium.
 
 **Connection won't establish at all**
 - Make sure Claude Code is running BEFORE you execute the gateway.
 - Allow Node.js through Windows Firewall if it prompts.
-- Test your executor's HTTP: paste `print(request({Url="http://127.0.0.1:7474/health", Method="GET"}).Body)` — should print `{"connected":...}`. If it errors, your executor's HTTP function is broken or your firewall is killing it.
+- Test Potassium's HTTP: paste `print(request({Url="http://127.0.0.1:7474/health", Method="GET"}).Body)` — should print `{"connected":...}`. If it errors, your firewall is killing it.
 
 **`/roblox-bridge:status` says `MCP server isn't loaded`**
 Plugin isn't installed or wasn't picked up. Restart Claude Code. If still broken, go to Manage Plugins → toggle the plugin off and back on.
@@ -122,15 +123,15 @@ Either Claude Code is closed (start it), or the broker port (7474) is taken by a
 - **Read other players' private data** (their inventory, stats, contracts). The server enforces privacy on every game. The only cross-player data exposed is whatever the game itself shows publicly.
 - **Read ServerScriptService scripts.** Those live on the server only; the client never receives them. You can decompile every client script but server scripts are gone.
 - **Bypass Byfron / Hyperion.** This plugin assumes you already have a working executor. It doesn't crack anything.
-- **Anything your executor can't do.** It's a wrapper, not magic.
+- **Anything Potassium can't do.** It's a wrapper, not magic. See [docs/potassium-api.md](docs/potassium-api.md) for what Potassium exposes.
 
 ## How it works (if you care)
 
 ```
-Claude Code  ⇄  MCP server (Node, on your PC)  ⇄  HTTP broker on 127.0.0.1:7474  ⇄  gateway.lua (in your executor)
+Claude Code  ⇄  MCP server (Node, on your PC)  ⇄  HTTP broker on 127.0.0.1:7474  ⇄  gateway.lua (in Potassium)
 ```
 
-When you ask Claude to do something, the MCP server queues a command. The gateway long-polls the broker, picks up the command, runs it with `loadstring`, sends the result back. Nothing leaves your machine.
+When you ask Claude to do something, the MCP server queues a command. The gateway long-polls the broker, picks up the command, runs it via the relevant Potassium API, sends the result back. Nothing leaves your machine.
 
 ## Updates
 
@@ -139,7 +140,7 @@ I push updates to GitHub. To pull them:
 1. **Manage Plugins → Marketplaces tab → click the refresh icon** next to `welcomerefresh1-eng/claude-skidding-plugin`.
 2. Restart Claude Code.
 
-If the gateway changed too (you'll see a new `lua/gateway.lua`), re-paste it in your executor.
+If the gateway changed too (you'll see a new `lua/gateway.lua`), re-paste it in Potassium.
 
 ## License
 
